@@ -22,17 +22,14 @@ jobs:
       - name: Скачать код
         uses: actions/checkout@v4
 
-      # --- Установка Maestro с проверкой ---
+      # --- Установка Maestro ---
       - name: Установить Maestro
         run: |
           echo "📦 Устанавливаем Maestro..."
           curl -Ls "https://get.maestro.mobile.dev" | bash
-          
-          # Добавляем в PATH
           export PATH="$HOME/.maestro/bin:$PATH"
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
           
-          # Проверяем установку
           if command -v maestro &> /dev/null; then
             echo "✅ Maestro установлен: $(maestro --version)"
           else
@@ -40,17 +37,13 @@ jobs:
             exit 1
           fi
 
-      # --- Установка ADB и STF клиента с проверкой ---
-      - name: Установить ADB и STF клиент
+      # --- Установка ADB и инструментов для работы с STF через API ---
+      - name: Установить ADB и curl
         run: |
-          echo "📦 Устанавливаем ADB и jq..."
+          echo "📦 Устанавливаем ADB и curl..."
           sudo apt-get update
-          sudo apt-get install -y android-tools-adb jq
+          sudo apt-get install -y android-tools-adb jq curl
           
-          echo "📦 Устанавливаем STF клиент..."
-          pip install stf-client
-          
-          # Проверяем установку
           if command -v adb &> /dev/null; then
             echo "✅ ADB установлен: $(adb --version | head -1)"
           else
@@ -58,14 +51,9 @@ jobs:
             exit 1
           fi
           
-          if command -v stf &> /dev/null; then
-            echo "✅ STF клиент установлен"
-          else
-            echo "❌ Ошибка: STF клиент не установлен"
-            exit 1
-          fi
+          echo "✅ curl и jq установлены"
 
-      # --- Подключение к STF с подробной диагностикой ---
+      # --- Подключение к STF с использованием прямых API запросов ---
       - name: Подключиться к устройству STF
         env:
           STF_URL: ${{ secrets.STF_URL }}
@@ -85,7 +73,8 @@ jobs:
           
           echo "🔗 Подключаемся к STF серверу: $STF_URL"
           
-          # Проверяем доступность STF сервера
+          # Проверяем доступность STF сервера через API
+          echo "🔍 Проверяем доступность API..."
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$STF_URL/api/v1/health" 2>/dev/null || echo "000")
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✅ STF сервер доступен"
@@ -94,61 +83,73 @@ jobs:
             echo "Проверьте:"
             echo "  - URL: $STF_URL"
             echo "  - Доступность сети для GitHub Actions runner"
-            echo "  - Firewall и настройки безопасности"
             exit 1
           fi
           
-          # Авторизация
-          echo "🔐 Авторизация..."
-          if stf auth --url "$STF_URL" --token "$STF_TOKEN"; then
-            echo "✅ Авторизация успешна"
-          else
-            echo "❌ Ошибка авторизации. Проверьте STF_TOKEN"
-            exit 1
-          fi
+          # Получаем список устройств через API
+          echo "📱 Получаем список устройств..."
+          DEVICES_RESPONSE=$(curl -s -X GET "$STF_URL/api/v1/devices" \
+            -H "Authorization: Bearer $STF_TOKEN")
           
-          # Список устройств
-          echo "📱 Доступные устройства:"
-          stf devices list --json | jq '.[] | {serial: .serial, model: .model, status: .status}'
+          echo "📊 Доступные устройства:"
+          echo "$DEVICES_RESPONSE" | jq -r '.devices[] | "  Серийный: \(.serial) | Статус: \(.present ? "подключено" : "отключено") | Используется: \(.using ? "да" : "нет")"'
           
-          # Подключение к устройству
+          # Определяем устройство для подключения
           if [ -n "$DEVICE_SERIAL" ]; then
-            echo "📱 Подключаемся к устройству: $DEVICE_SERIAL"
-            stf connect "$DEVICE_SERIAL" || {
-              echo "❌ Не удалось подключиться к устройству $DEVICE_SERIAL"
-              exit 1
-            }
+            echo "📱 Используем указанное устройство: $DEVICE_SERIAL"
+            TARGET_SERIAL="$DEVICE_SERIAL"
           else
             echo "🔍 Ищем свободное устройство..."
-            DEVICE=$(stf devices list --json | jq -r '.[] | select(.status=="available") | .serial' | head -1)
-            if [ -z "$DEVICE" ]; then
+            TARGET_SERIAL=$(echo "$DEVICES_RESPONSE" | jq -r '.devices[] | select(.present == true and .using == false) | .serial' | head -1)
+            if [ -z "$TARGET_SERIAL" ]; then
               echo "❌ Нет доступных устройств на ферме"
-              echo "📊 Статус всех устройств:"
-              stf devices list --json | jq '.[] | {serial: .serial, status: .status}'
               exit 1
             fi
-            echo "📱 Используем устройство: $DEVICE"
-            stf connect "$DEVICE" || {
-              echo "❌ Не удалось подключиться к устройству $DEVICE"
-              exit 1
-            }
+            echo "📱 Найдено свободное устройство: $TARGET_SERIAL"
           fi
           
-          # Ждем подключения ADB
-          echo "⏳ Ожидаем ADB подключение..."
-          sleep 5
+          # Резервируем устройство через API
+          echo "🔒 Резервируем устройство..."
+          RESERVE_RESPONSE=$(curl -s -X POST "$STF_URL/api/v1/user/devices/$TARGET_SERIAL/remoteConnect" \
+            -H "Authorization: Bearer $STF_TOKEN" \
+            -H "Content-Type: application/json")
           
-          # Проверяем ADB
+          echo "Ответ API: $RESERVE_RESPONSE"
+          
+          # Извлекаем remoteConnectUrl из ответа
+          REMOTE_URL=$(echo "$RESERVE_RESPONSE" | jq -r '.remoteConnectUrl // empty')
+          
+          if [ -z "$REMOTE_URL" ]; then
+            echo "❌ Не удалось зарезервировать устройство"
+            echo "Ответ API: $RESERVE_RESPONSE"
+            exit 1
+          fi
+          
+          echo "✅ Устройство зарезервировано"
+          echo "🔌 Подключаемся через ADB: $REMOTE_URL"
+          
+          # Подключаемся через ADB (формат: adb connect ip:port)
+          adb connect "$REMOTE_URL"
+          
+          # Ждем подключения
+          sleep 3
+          
+          # Проверяем ADB подключение
           echo "🔌 Проверка ADB:"
           adb devices
           
           # Ждем готовности устройства
           adb wait-for-device || echo "⚠️ Предупреждение: adb wait-for-device завершился с ошибкой"
           
+          # Сохраняем серийный номер для следующих шагов
+          echo "TARGET_SERIAL=$TARGET_SERIAL" >> $GITHUB_ENV
+          
           # Информация об устройстве
           echo "📊 Информация об устройстве:"
-          adb shell getprop ro.product.model 2>/dev/null || echo "Не удалось получить модель"
-          adb shell getprop ro.build.version.release 2>/dev/null || echo "Не удалось получить версию Android"
+          MODEL=$(adb shell getprop ro.product.model 2>/dev/null || echo "Неизвестно")
+          ANDROID_VERSION=$(adb shell getprop ro.build.version.release 2>/dev/null || echo "Неизвестно")
+          echo "  Модель: $MODEL"
+          echo "  Android: $ANDROID_VERSION"
 
       # --- Проверка приложения ---
       - name: Проверить наличие приложения
@@ -164,6 +165,8 @@ jobs:
           else
             echo "⚠️ Приложение НЕ установлено на устройстве"
             echo "app_installed=false" >> $GITHUB_OUTPUT
+            echo "📱 Список установленных приложений (первые 10):"
+            adb shell pm list packages | head -10
           fi
 
       # --- Запуск тестов ---
@@ -182,17 +185,22 @@ jobs:
           fi
           
           echo "🚀 Запускаем тесты из: $TEST_PATH"
+          echo "📱 Устройство: $TARGET_SERIAL"
           
           # Запускаем Maestro с явным указанием PATH
           export PATH="$HOME/.maestro/bin:$PATH"
           maestro test "$TEST_PATH" \
             --format junit \
-            --output maestro-report.xml || {
-            echo "⚠️ Тесты завершились с ошибкой"
-            exit 1
-          }
+            --output maestro-report.xml
           
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ Тесты прошли успешно"
+          else
+            echo "⚠️ Тесты завершились с ошибкой (код: $EXIT_CODE)"
+          fi
 
       # --- Сохранение результатов ---
       - name: Сохранить результаты тестов
@@ -206,13 +214,21 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      # --- Отключение от STF ---
+      # --- Отключение от STF (освобождение устройства) ---
       - name: Отключиться от STF
         if: always()
         continue-on-error: true
+        env:
+          STF_URL: ${{ secrets.STF_URL }}
+          STF_TOKEN: ${{ secrets.STF_TOKEN }}
         run: |
-          stf disconnect 2>/dev/null || true
-          echo "✅ Устройство отключено"
+          if [ -n "$TARGET_SERIAL" ]; then
+            echo "🔓 Освобождаем устройство $TARGET_SERIAL..."
+            curl -s -X POST "$STF_URL/api/v1/user/devices/$TARGET_SERIAL/remoteDisconnect" \
+              -H "Authorization: Bearer $STF_TOKEN" \
+              -H "Content-Type: application/json" || true
+            echo "✅ Устройство освобождено"
+          fi
 
       # --- Итоговый статус ---
       - name: Итоговый статус
