@@ -1,8 +1,6 @@
 name: Maestro Тесты на STF ферме
 
-# Когда запускать этот workflow
 on:
-  # Ручной запуск из интерфейса GitHub
   workflow_dispatch:
     inputs:
       device_serial:
@@ -15,111 +13,152 @@ on:
         default: '.maestro/'
         type: string
 
-# Что будет выполняться
 jobs:
-  # Задача: запуск тестов
   maestro-tests:
-    # На какой виртуальной машине запускать
     runs-on: ubuntu-latest
-    # Максимальное время выполнения (15 минут)
     timeout-minutes: 15
     
-    # Шаги, которые нужно выполнить
     steps:
-      # Шаг 1: Скачать код из репозитория
       - name: Скачать код
         uses: actions/checkout@v4
 
-      # Шаг 2: Установить Maestro на виртуальную машину GitHub
+      # --- Установка Maestro с проверкой ---
       - name: Установить Maestro
         run: |
-          # Скачиваем и устанавливаем Maestro
+          echo "📦 Устанавливаем Maestro..."
           curl -Ls "https://get.maestro.mobile.dev" | bash
-          # Добавляем Maestro в PATH (чтобы можно было вызывать команду maestro)
+          
+          # Добавляем в PATH
+          export PATH="$HOME/.maestro/bin:$PATH"
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
-          # Проверяем, что установилось
-          maestro --version
+          
+          # Проверяем установку
+          if command -v maestro &> /dev/null; then
+            echo "✅ Maestro установлен: $(maestro --version)"
+          else
+            echo "❌ Ошибка: Maestro не установлен"
+            exit 1
+          fi
 
-      # Шаг 3: Установить инструменты для работы с Android и STF
+      # --- Установка ADB и STF клиента с проверкой ---
       - name: Установить ADB и STF клиент
         run: |
-          # Обновляем список пакетов
+          echo "📦 Устанавливаем ADB и jq..."
           sudo apt-get update
-          # Устанавливаем ADB (для связи с Android) и jq (для работы с JSON)
           sudo apt-get install -y android-tools-adb jq
-          # Устанавливаем Python клиент для работы с STF API
-          pip install stf-client
-
-      # Шаг 4: Подключиться к устройству на STF ферме
-      - name: Подключиться к устройству STF
-        env:
-          # Секреты, которые мы настроим в GitHub
-          STF_URL: ${{ secrets.STF_URL }}
-          STF_TOKEN: ${{ secrets.STF_TOKEN }}
-          # Можно указать конкретное устройство или оставить пустым
-          DEVICE_SERIAL: ${{ inputs.device_serial || secrets.STF_DEVICE_SERIAL }}
-        run: |
-          # Показываем адрес STF фермы (токен не показываем, он скрыт)
-          echo "🔗 Подключаемся к STF серверу: $STF_URL"
           
-          # Проверяем, доступен ли STF сервер
-          if curl -s -o /dev/null -w "%{http_code}" "$STF_URL/api/v1/health" | grep -q "200"; then
-            echo "✅ STF сервер доступен"
+          echo "📦 Устанавливаем STF клиент..."
+          pip install stf-client
+          
+          # Проверяем установку
+          if command -v adb &> /dev/null; then
+            echo "✅ ADB установлен: $(adb --version | head -1)"
           else
-            echo "❌ Не могу подключиться к STF серверу по адресу $STF_URL"
+            echo "❌ Ошибка: ADB не установлен"
             exit 1
           fi
           
-          # Авторизуемся на STF с помощью токена
-          echo "🔐 Авторизация..."
-          stf auth --url "$STF_URL" --token "$STF_TOKEN"
+          if command -v stf &> /dev/null; then
+            echo "✅ STF клиент установлен"
+          else
+            echo "❌ Ошибка: STF клиент не установлен"
+            exit 1
+          fi
+
+      # --- Подключение к STF с подробной диагностикой ---
+      - name: Подключиться к устройству STF
+        env:
+          STF_URL: ${{ secrets.STF_URL }}
+          STF_TOKEN: ${{ secrets.STF_TOKEN }}
+          DEVICE_SERIAL: ${{ inputs.device_serial || secrets.STF_DEVICE_SERIAL }}
+        run: |
+          # Проверяем, что секреты заданы
+          if [ -z "$STF_URL" ]; then
+            echo "❌ Ошибка: STF_URL не задан в секретах GitHub"
+            exit 1
+          fi
           
-          # Показываем список доступных устройств на ферме
+          if [ -z "$STF_TOKEN" ]; then
+            echo "❌ Ошибка: STF_TOKEN не задан в секретах GitHub"
+            exit 1
+          fi
+          
+          echo "🔗 Подключаемся к STF серверу: $STF_URL"
+          
+          # Проверяем доступность STF сервера
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$STF_URL/api/v1/health" 2>/dev/null || echo "000")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ STF сервер доступен"
+          else
+            echo "❌ Не могу подключиться к STF серверу (HTTP $HTTP_CODE)"
+            echo "Проверьте:"
+            echo "  - URL: $STF_URL"
+            echo "  - Доступность сети для GitHub Actions runner"
+            echo "  - Firewall и настройки безопасности"
+            exit 1
+          fi
+          
+          # Авторизация
+          echo "🔐 Авторизация..."
+          if stf auth --url "$STF_URL" --token "$STF_TOKEN"; then
+            echo "✅ Авторизация успешна"
+          else
+            echo "❌ Ошибка авторизации. Проверьте STF_TOKEN"
+            exit 1
+          fi
+          
+          # Список устройств
           echo "📱 Доступные устройства:"
           stf devices list --json | jq '.[] | {serial: .serial, model: .model, status: .status}'
           
-          # Подключаемся к устройству
+          # Подключение к устройству
           if [ -n "$DEVICE_SERIAL" ]; then
-            # Если указан конкретный серийный номер
             echo "📱 Подключаемся к устройству: $DEVICE_SERIAL"
-            stf connect "$DEVICE_SERIAL"
+            stf connect "$DEVICE_SERIAL" || {
+              echo "❌ Не удалось подключиться к устройству $DEVICE_SERIAL"
+              exit 1
+            }
           else
-            # Если не указан, ищем любое свободное устройство
             echo "🔍 Ищем свободное устройство..."
             DEVICE=$(stf devices list --json | jq -r '.[] | select(.status=="available") | .serial' | head -1)
             if [ -z "$DEVICE" ]; then
               echo "❌ Нет доступных устройств на ферме"
+              echo "📊 Статус всех устройств:"
+              stf devices list --json | jq '.[] | {serial: .serial, status: .status}'
               exit 1
             fi
             echo "📱 Используем устройство: $DEVICE"
-            stf connect "$DEVICE"
+            stf connect "$DEVICE" || {
+              echo "❌ Не удалось подключиться к устройству $DEVICE"
+              exit 1
+            }
           fi
           
-          # Ждем, пока устройство подключится
+          # Ждем подключения ADB
+          echo "⏳ Ожидаем ADB подключение..."
           sleep 5
           
-          # Проверяем, видит ли ADB устройство
-          echo "🔌 Проверка ADB подключения:"
+          # Проверяем ADB
+          echo "🔌 Проверка ADB:"
           adb devices
           
-          # Ждем, пока устройство будет готово
-          adb wait-for-device
+          # Ждем готовности устройства
+          adb wait-for-device || echo "⚠️ Предупреждение: adb wait-for-device завершился с ошибкой"
           
-          # Показываем информацию об устройстве
+          # Информация об устройстве
           echo "📊 Информация об устройстве:"
-          echo "Модель: $(adb shell getprop ro.product.model)"
-          echo "Версия Android: $(adb shell getprop ro.build.version.release)"
+          adb shell getprop ro.product.model 2>/dev/null || echo "Не удалось получить модель"
+          adb shell getprop ro.build.version.release 2>/dev/null || echo "Не удалось получить версию Android"
 
-      # Шаг 5: Проверить, установлено ли приложение на устройстве
+      # --- Проверка приложения ---
       - name: Проверить наличие приложения
         id: check_app
         continue-on-error: true
         run: |
-          # Пакет нашего приложения
           APP_ID="ru.neopharm.stolichki"
+          echo "🔍 Проверяем приложение $APP_ID..."
           
-          # Проверяем, есть ли приложение в списке установленных
-          if adb shell pm list packages | grep -q "$APP_ID"; then
+          if adb shell pm list packages 2>/dev/null | grep -q "$APP_ID"; then
             echo "✅ Приложение установлено"
             echo "app_installed=true" >> $GITHUB_OUTPUT
           else
@@ -127,55 +166,58 @@ jobs:
             echo "app_installed=false" >> $GITHUB_OUTPUT
           fi
 
-      # Шаг 6: Запустить Maestro тесты
+      # --- Запуск тестов ---
       - name: Запустить Maestro тесты
         id: maestro_tests
-        continue-on-error: true  # Не останавливаться, если тесты упали
+        continue-on-error: true
         run: |
-          # Путь к тестам (можно переопределить при ручном запуске)
           TEST_PATH="${{ inputs.test_path || '.maestro/' }}"
-          echo "🚀 Запускаем тесты из папки: $TEST_PATH"
           
-          # Запускаем Maestro
-          # --format junit - сохраняем отчет в формате JUnit
-          # --output - имя файла с отчетом
+          # Проверяем, существует ли папка с тестами
+          if [ ! -d ".maestro" ] && [ ! -f "$TEST_PATH" ]; then
+            echo "❌ Ошибка: Папка .maestro или файл $TEST_PATH не найдены"
+            echo "📁 Содержимое репозитория:"
+            ls -la
+            exit 1
+          fi
+          
+          echo "🚀 Запускаем тесты из: $TEST_PATH"
+          
+          # Запускаем Maestro с явным указанием PATH
+          export PATH="$HOME/.maestro/bin:$PATH"
           maestro test "$TEST_PATH" \
             --format junit \
-            --output maestro-report.xml
+            --output maestro-report.xml || {
+            echo "⚠️ Тесты завершились с ошибкой"
+            exit 1
+          }
           
-          # Сохраняем код возврата (0 - успех, не 0 - ошибка)
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
-      # Шаг 7: Сохранить результаты тестов (видео, скриншоты, отчеты)
+      # --- Сохранение результатов ---
       - name: Сохранить результаты тестов
-        if: always()  # Выполняется всегда, даже если тесты упали
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          # Имя архива с результатами
           name: maestro-test-results
-          # Какие файлы сохранить
           path: |
-            maestro-report.xml          # Отчет в формате JUnit
-            ~/.maestro/tests/**/*       # Видео, скриншоты и логи
-          # Сколько дней хранить артефакты
+            maestro-report.xml
+            ~/.maestro/tests/**/*
           retention-days: 7
-          # Если файлов нет, просто показываем предупреждение
           if-no-files-found: warn
 
-      # Шаг 8: Отключиться от устройства (освободить его для других)
+      # --- Отключение от STF ---
       - name: Отключиться от STF
-        if: always()  # Выполняется всегда
-        continue-on-error: true  # Даже если ошибка, продолжаем
+        if: always()
+        continue-on-error: true
         run: |
-          # Отключаемся от устройства, чтобы его могли использовать другие
-          stf disconnect
-          echo "✅ Устройство отключено и освобождено"
+          stf disconnect 2>/dev/null || true
+          echo "✅ Устройство отключено"
 
-      # Шаг 9: Завершить с правильным кодом ошибки
+      # --- Итоговый статус ---
       - name: Итоговый статус
         if: always()
         run: |
-          # Если тесты завершились с ошибкой, завершаем workflow с ошибкой
           if [ "${{ steps.maestro_tests.outputs.exit_code }}" != "0" ]; then
             echo "❌ Тесты завершились с ошибкой"
             exit 1
