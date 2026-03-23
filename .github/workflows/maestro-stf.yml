@@ -3,12 +3,13 @@ name: Maestro Тесты на STF ферме
 on:
   workflow_dispatch:
     inputs:
-      device_serial:
-        description: 'Серийный номер устройства (оставьте пустым для авто-выбора)'
+      device_address:
+        description: 'ADB адрес устройства'
         required: false
+        default: '80.82.40.133:7401'
         type: string
       test_path:
-        description: 'Путь к тесту или папке (например, .maestro/test.yaml)'
+        description: 'Путь к тесту или папке'
         required: false
         default: '.maestro/'
         type: string
@@ -28,110 +29,48 @@ jobs:
           curl -Ls "https://get.maestro.mobile.dev" | bash
           export PATH="$HOME/.maestro/bin:$PATH"
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
-          echo "✅ Maestro установлен"
+          echo "✅ Maestro установлен: $(maestro --version 2>&1 | head -1)"
 
-      - name: Установить ADB и инструменты
+      - name: Установить ADB
         run: |
-          echo "📦 Устанавливаем ADB, curl и jq..."
+          echo "📦 Устанавливаем ADB..."
           sudo apt-get update
-          sudo apt-get install -y android-tools-adb jq curl
-          echo "✅ ADB установлен"
+          sudo apt-get install -y android-tools-adb
+          echo "✅ ADB установлен: $(adb --version | head -1)"
 
-      - name: Подключиться к устройству STF
-        env:
-          STF_URL: ${{ secrets.STF_URL }}
-          STF_TOKEN: ${{ secrets.STF_TOKEN }}
-          DEVICE_SERIAL: ${{ inputs.device_serial || secrets.STF_DEVICE_SERIAL }}
+      - name: Подключиться к устройству
         run: |
-          # Проверяем секреты
-          if [ -z "$STF_URL" ]; then
-            echo "❌ Ошибка: STF_URL не задан в секретах GitHub"
-            exit 1
-          fi
-          
-          if [ -z "$STF_TOKEN" ]; then
-            echo "❌ Ошибка: STF_TOKEN не задан в секретах GitHub"
-            exit 1
-          fi
-          
-          echo "🔗 STF сервер: $STF_URL"
-          
-          # Получаем список устройств через правильный эндпоинт
-          echo "📱 Получаем список устройств..."
-          DEVICES_RESPONSE=$(curl -s -X GET "$STF_URL/api/v1/user/devices" \
-            -H "Authorization: Bearer $STF_TOKEN")
-          
-          echo "📊 Ответ от STF:"
-          echo "$DEVICES_RESPONSE" | jq '.' 2>/dev/null || echo "$DEVICES_RESPONSE"
-          
-          # Проверяем, есть ли устройства
-          DEVICE_COUNT=$(echo "$DEVICES_RESPONSE" | jq '.devices | length' 2>/dev/null || echo "0")
-          if [ "$DEVICE_COUNT" = "0" ]; then
-            echo "❌ Нет устройств на ферме"
-            exit 1
-          fi
-          
-          # Показываем доступные устройства
-          echo "📊 Доступные устройства:"
-          echo "$DEVICES_RESPONSE" | jq -r '.devices[] | "  Серийный: \(.serial) | Статус: \(.present) | Используется: \(.using)"' 2>/dev/null
-          
-          # Выбираем устройство
-          if [ -n "$DEVICE_SERIAL" ]; then
-            echo "📱 Используем указанное устройство: $DEVICE_SERIAL"
-            TARGET_SERIAL="$DEVICE_SERIAL"
-          else
-            echo "🔍 Ищем свободное устройство..."
-            TARGET_SERIAL=$(echo "$DEVICES_RESPONSE" | jq -r '.devices[] | select(.present == true and .using == false) | .serial' | head -1)
-            if [ -z "$TARGET_SERIAL" ]; then
-              echo "❌ Нет доступных устройств на ферме"
-              exit 1
-            fi
-            echo "📱 Найдено свободное устройство: $TARGET_SERIAL"
-          fi
-          
-          # Резервируем устройство
-          echo "🔒 Резервируем устройство $TARGET_SERIAL..."
-          RESERVE_RESPONSE=$(curl -s -X POST "$STF_URL/api/v1/user/devices/$TARGET_SERIAL/remoteConnect" \
-            -H "Authorization: Bearer $STF_TOKEN" \
-            -H "Content-Type: application/json")
-          
-          echo "Ответ на резервирование:"
-          echo "$RESERVE_RESPONSE" | jq '.' 2>/dev/null || echo "$RESERVE_RESPONSE"
-          
-          # Получаем адрес для ADB подключения
-          REMOTE_URL=$(echo "$RESERVE_RESPONSE" | jq -r '.remoteConnectUrl // empty')
-          
-          if [ -z "$REMOTE_URL" ]; then
-            echo "❌ Не удалось зарезервировать устройство"
-            exit 1
-          fi
-          
-          echo "✅ Устройство зарезервировано"
-          echo "🔌 ADB адрес: $REMOTE_URL"
+          DEVICE_ADDR="${{ inputs.device_address }}"
+          echo "🔌 Подключаемся к устройству: $DEVICE_ADDR"
           
           # Подключаемся через ADB
-          adb connect "$REMOTE_URL"
+          adb connect "$DEVICE_ADDR"
           
           # Ждем подключения
-          sleep 3
+          for i in {1..5}; do
+            sleep 2
+            if adb devices | grep -q "$DEVICE_ADDR.*device"; then
+              echo "✅ Устройство подключено"
+              break
+            fi
+            echo "⏳ Ожидание подключения... ($i/5)"
+          done
           
-          # Проверяем ADB подключение
-          echo "🔌 Проверка ADB:"
+          # Проверяем подключение
           adb devices
           
           # Сохраняем серийный номер
-          echo "TARGET_SERIAL=$TARGET_SERIAL" >> $GITHUB_ENV
+          echo "DEVICE_ADDR=$DEVICE_ADDR" >> $GITHUB_ENV
           
-          # Получаем информацию об устройстве
+          # Информация об устройстве
           echo "📊 Информация об устройстве:"
-          adb shell getprop ro.product.model 2>/dev/null || echo "  Модель: неизвестно"
-          adb shell getprop ro.build.version.release 2>/dev/null || echo "  Android: неизвестно"
+          echo "  Модель: $(adb shell getprop ro.product.model 2>/dev/null || echo 'неизвестно')"
+          echo "  Android: $(adb shell getprop ro.build.version.release 2>/dev/null || echo 'неизвестно')"
 
       - name: Проверить наличие приложения
         id: check_app
-        continue-on-error: true
         run: |
-          APP_ID="ru.neopharm.stolichki"
+          APP_ID="com.example.myapp"
           echo "🔍 Проверяем приложение $APP_ID..."
           
           if adb shell pm list packages 2>/dev/null | grep -q "$APP_ID"; then
@@ -140,8 +79,9 @@ jobs:
           else
             echo "⚠️ Приложение НЕ установлено на устройстве"
             echo "app_installed=false" >> $GITHUB_OUTPUT
-            echo "📱 Список установленных приложений (первые 10):"
-            adb shell pm list packages | head -10
+            echo "📱 Список установленных приложений:"
+            adb shell pm list packages | head -20
+            exit 1
           fi
 
       - name: Запустить Maestro тесты
@@ -152,6 +92,7 @@ jobs:
           
           if [ ! -d ".maestro" ] && [ ! -f "$TEST_PATH" ]; then
             echo "❌ Ошибка: Папка .maestro или файл $TEST_PATH не найдены"
+            echo "📁 Содержимое репозитория:"
             ls -la
             exit 1
           fi
@@ -159,6 +100,7 @@ jobs:
           echo "🚀 Запускаем тесты из: $TEST_PATH"
           export PATH="$HOME/.maestro/bin:$PATH"
           
+          # Запускаем тесты
           maestro test "$TEST_PATH" \
             --format junit \
             --output maestro-report.xml
@@ -183,19 +125,12 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Отключиться от STF
+      - name: Отключиться от устройства
         if: always()
         continue-on-error: true
         run: |
-          if [ -n "$TARGET_SERIAL" ]; then
-            echo "🔓 Освобождаем устройство $TARGET_SERIAL..."
-            curl -s -X POST "$STF_URL/api/v1/user/devices/$TARGET_SERIAL/remoteDisconnect" \
-              -H "Authorization: Bearer $STF_TOKEN" \
-              -H "Content-Type: application/json" || true
-            
-            adb disconnect 2>/dev/null || true
-            echo "✅ Устройство освобождено"
-          fi
+          adb disconnect
+          echo "✅ Устройство отключено"
 
       - name: Итоговый статус
         if: always()
