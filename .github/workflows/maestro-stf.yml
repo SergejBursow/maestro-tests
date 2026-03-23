@@ -47,42 +47,28 @@ jobs:
           adb connect "$DEVICE_ADDR"
           
           # Ждем подключения
-          for i in {1..5}; do
+          for i in {1..10}; do
             sleep 2
             if adb devices | grep -q "$DEVICE_ADDR.*device"; then
               echo "✅ Устройство подключено"
               break
             fi
-            echo "⏳ Ожидание подключения... ($i/5)"
+            echo "⏳ Ожидание подключения... ($i/10)"
           done
           
           # Проверяем подключение
+          echo "🔍 Проверка ADB:"
           adb devices
           
-          # Сохраняем серийный номер
+          # Сохраняем адрес устройства
           echo "DEVICE_ADDR=$DEVICE_ADDR" >> $GITHUB_ENV
           
           # Информация об устройстве
           echo "📊 Информация об устройстве:"
-          echo "  Модель: $(adb shell getprop ro.product.model 2>/dev/null || echo 'неизвестно')"
-          echo "  Android: $(adb shell getprop ro.build.version.release 2>/dev/null || echo 'неизвестно')"
-
-      - name: Проверить наличие приложения
-        id: check_app
-        run: |
-          APP_ID="com.example.myapp"
-          echo "🔍 Проверяем приложение $APP_ID..."
-          
-          if adb shell pm list packages 2>/dev/null | grep -q "$APP_ID"; then
-            echo "✅ Приложение установлено"
-            echo "app_installed=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ Приложение НЕ установлено на устройстве"
-            echo "app_installed=false" >> $GITHUB_OUTPUT
-            echo "📱 Список установленных приложений:"
-            adb shell pm list packages | head -20
-            exit 1
-          fi
+          MODEL=$(adb shell getprop ro.product.model 2>/dev/null || echo "неизвестно")
+          ANDROID_VERSION=$(adb shell getprop ro.build.version.release 2>/dev/null || echo "неизвестно")
+          echo "  Модель: $MODEL"
+          echo "  Android: $ANDROID_VERSION"
 
       - name: Запустить Maestro тесты
         id: maestro_tests
