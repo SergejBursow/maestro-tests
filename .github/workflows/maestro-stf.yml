@@ -3,10 +3,9 @@ name: Maestro Тесты на STF ферме
 on:
   workflow_dispatch:
     inputs:
-      device_address:
-        description: 'ADB адрес устройства'
+      device_serial:
+        description: 'Серийный номер устройства (оставьте пустым для авто-выбора)'
         required: false
-        default: '80.82.40.133:7401'
         type: string
       test_path:
         description: 'Путь к тесту или папке'
@@ -29,76 +28,128 @@ jobs:
           curl -Ls "https://get.maestro.mobile.dev" | bash
           export PATH="$HOME/.maestro/bin:$PATH"
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
-          echo "✅ Maestro установлен: $(maestro --version 2>&1 | head -1)"
+          echo "✅ Maestro установлен"
 
-      - name: Установить ADB
+      - name: Установить ADB и curl
         run: |
-          echo "📦 Устанавливаем ADB..."
+          echo "📦 Устанавливаем ADB и jq..."
           sudo apt-get update
-          sudo apt-get install -y android-tools-adb
-          echo "✅ ADB установлен: $(adb --version | head -1)"
+          sudo apt-get install -y android-tools-adb jq curl
+          echo "✅ ADB установлен"
 
-      - name: Подключиться к устройству
+      - name: Получить список устройств через STF API
+        id: get_devices
+        env:
+          STF_URL: ${{ secrets.STF_URL }}
+          STF_TOKEN: ${{ secrets.STF_TOKEN }}
         run: |
-          DEVICE_ADDR="${{ inputs.device_address }}"
-          echo "🔌 Подключаемся к устройству: $DEVICE_ADDR"
+          echo "🔍 Получаем список устройств из STF..."
           
-          # Подключаемся через ADB
-          adb connect "$DEVICE_ADDR"
+          RESPONSE=$(curl -s -X GET "$STF_URL/api/v1/user/devices" \
+            -H "Authorization: Bearer $STF_TOKEN")
+          
+          echo "Ответ API: $RESPONSE"
+          
+          # Сохраняем ответ для следующего шага
+          echo "$RESPONSE" > devices.json
+          
+          # Проверяем, есть ли устройства
+          DEVICE_COUNT=$(echo "$RESPONSE" | jq '.devices | length')
+          echo "Найдено устройств: $DEVICE_COUNT"
+          
+          if [ "$DEVICE_COUNT" -eq 0 ]; then
+            echo "⚠️ Нет доступных устройств в STF"
+            echo "Список устройств пуст. Возможно, нужно зарезервировать устройство вручную."
+            exit 1
+          fi
+          
+          # Показываем устройства
+          echo "$RESPONSE" | jq -r '.devices[] | "  Серийный: \(.serial) | Статус: \(.present) | Используется: \(.using)"'
+
+      - name: Резервировать устройство
+        id: reserve_device
+        env:
+          STF_URL: ${{ secrets.STF_URL }}
+          STF_TOKEN: ${{ secrets.STF_TOKEN }}
+          DEVICE_SERIAL: ${{ inputs.device_serial }}
+        run: |
+          # Если серийный номер не указан, берем первое доступное устройство
+          if [ -z "$DEVICE_SERIAL" ]; then
+            DEVICE_SERIAL=$(cat devices.json | jq -r '.devices[] | select(.present == true and .using == false) | .serial' | head -1)
+          fi
+          
+          if [ -z "$DEVICE_SERIAL" ]; then
+            echo "❌ Нет доступных устройств для резервирования"
+            exit 1
+          fi
+          
+          echo "🔒 Резервируем устройство: $DEVICE_SERIAL"
+          
+          RESERVE_RESPONSE=$(curl -s -X POST "$STF_URL/api/v1/user/devices/$DEVICE_SERIAL/remoteConnect" \
+            -H "Authorization: Bearer $STF_TOKEN" \
+            -H "Content-Type: application/json")
+          
+          echo "Ответ: $RESERVE_RESPONSE"
+          
+          REMOTE_URL=$(echo "$RESERVE_RESPONSE" | jq -r '.remoteConnectUrl // empty')
+          
+          if [ -z "$REMOTE_URL" ]; then
+            echo "❌ Не удалось зарезервировать устройство"
+            exit 1
+          fi
+          
+          echo "✅ Устройство зарезервировано"
+          echo "🔌 ADB адрес: $REMOTE_URL"
+          echo "DEVICE_SERIAL=$DEVICE_SERIAL" >> $GITHUB_ENV
+          echo "REMOTE_URL=$REMOTE_URL" >> $GITHUB_ENV
+
+      - name: Подключиться к устройству через ADB
+        run: |
+          echo "🔌 Подключаемся к $REMOTE_URL"
+          
+          # Убиваем старые ADB сессии
+          adb kill-server
+          sleep 1
+          adb start-server
+          sleep 1
+          
+          # Подключаемся
+          adb connect "$REMOTE_URL"
           
           # Ждем подключения
           for i in {1..10}; do
             sleep 2
-            if adb devices | grep -q "$DEVICE_ADDR.*device"; then
+            if adb devices | grep -q "$REMOTE_URL.*device"; then
               echo "✅ Устройство подключено"
               break
             fi
             echo "⏳ Ожидание подключения... ($i/10)"
           done
           
-          # Проверяем подключение
-          echo "🔍 Проверка ADB:"
+          # Проверяем
           adb devices
-          
-          # Сохраняем адрес устройства
-          echo "DEVICE_ADDR=$DEVICE_ADDR" >> $GITHUB_ENV
           
           # Информация об устройстве
           echo "📊 Информация об устройстве:"
-          MODEL=$(adb shell getprop ro.product.model 2>/dev/null || echo "неизвестно")
-          ANDROID_VERSION=$(adb shell getprop ro.build.version.release 2>/dev/null || echo "неизвестно")
-          echo "  Модель: $MODEL"
-          echo "  Android: $ANDROID_VERSION"
+          adb shell getprop ro.product.model 2>/dev/null || echo "  Модель: неизвестно"
+          adb shell getprop ro.build.version.release 2>/dev/null || echo "  Android: неизвестно"
 
       - name: Запустить Maestro тесты
         id: maestro_tests
         continue-on-error: true
         run: |
           TEST_PATH="${{ inputs.test_path || '.maestro/' }}"
-          
-          if [ ! -d ".maestro" ] && [ ! -f "$TEST_PATH" ]; then
-            echo "❌ Ошибка: Папка .maestro или файл $TEST_PATH не найдены"
-            echo "📁 Содержимое репозитория:"
-            ls -la
-            exit 1
-          fi
-          
-          echo "🚀 Запускаем тесты из: $TEST_PATH"
           export PATH="$HOME/.maestro/bin:$PATH"
           
-          # Запускаем тесты
+          echo "🚀 Запускаем тесты из: $TEST_PATH"
+          echo "🔌 Устройства перед запуском:"
+          adb devices
+          
           maestro test "$TEST_PATH" \
             --format junit \
             --output maestro-report.xml
           
-          EXIT_CODE=$?
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "✅ Тесты прошли успешно"
-          else
-            echo "⚠️ Тесты завершились с ошибкой (код: $EXIT_CODE)"
-          fi
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
 
       - name: Сохранить результаты тестов
         if: always()
@@ -111,12 +162,21 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Отключиться от устройства
+      - name: Освободить устройство
         if: always()
         continue-on-error: true
+        env:
+          STF_URL: ${{ secrets.STF_URL }}
+          STF_TOKEN: ${{ secrets.STF_TOKEN }}
         run: |
+          echo "🔓 Освобождаем устройство $DEVICE_SERIAL"
+          
+          curl -s -X POST "$STF_URL/api/v1/user/devices/$DEVICE_SERIAL/remoteDisconnect" \
+            -H "Authorization: Bearer $STF_TOKEN" \
+            -H "Content-Type: application/json" || true
+          
           adb disconnect
-          echo "✅ Устройство отключено"
+          echo "✅ Устройство освобождено"
 
       - name: Итоговый статус
         if: always()
