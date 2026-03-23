@@ -1,0 +1,17 @@
+# Maestro artifacts
+.maestro/cache/
+.maestro/reports/
+
+# Test artifacts
+*.mp4
+*.png
+*.log
+maestro-report.xml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
