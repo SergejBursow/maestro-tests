@@ -6,7 +6,7 @@ on:
       device_address:
         description: 'ADB адрес устройства в формате host:port'
         required: false
-        default: '80.82.40.133:7401'
+        default: '80.82.40.133:7405'
         type: string
       app_id:
         description: 'Android applicationId для Maestro'
@@ -22,6 +22,9 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      ADB_PRIVATE_KEY: ${{ secrets.ADB_PRIVATE_KEY }}
+      ADB_PUBLIC_KEY: ${{ secrets.ADB_PUBLIC_KEY }}
     
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +36,21 @@ jobs:
       
       - name: Install ADB
         run: sudo apt-get install -y android-tools-adb
+
+      - name: Configure ADB keys
+        if: env.ADB_PRIVATE_KEY != ''
+        run: |
+          mkdir -p "$HOME/.android"
+          printf '%s\n' "$ADB_PRIVATE_KEY" > "$HOME/.android/adbkey"
+          chmod 600 "$HOME/.android/adbkey"
+
+          if [ -n "$ADB_PUBLIC_KEY" ]; then
+            printf '%s\n' "$ADB_PUBLIC_KEY" > "$HOME/.android/adbkey.pub"
+            chmod 644 "$HOME/.android/adbkey.pub"
+          fi
+
+          echo "ADB_VENDOR_KEYS=$HOME/.android" >> "$GITHUB_ENV"
+          echo "✅ ADB key configured from GitHub Secrets"
       
       - name: Check ADB endpoint reachability
         run: |
@@ -51,7 +69,8 @@ jobs:
         run: |
           DEVICE="${{ inputs.device_address }}"
           echo "🔌 Connecting to $DEVICE"
-          adb connect "$DEVICE"
+          CONNECT_OUTPUT="$(adb connect "$DEVICE" 2>&1 || true)"
+          printf '%s\n' "$CONNECT_OUTPUT"
           
           for i in {1..10}; do
             sleep 2
@@ -62,6 +81,19 @@ jobs:
           done
           
           adb devices
+
+          if adb devices | grep -q "$DEVICE.*unauthorized"; then
+            echo "::error::ADB connected to $DEVICE but the device is unauthorized."
+            echo "::error::Add GitHub secret ADB_PRIVATE_KEY with the contents of ~/.android/adbkey from the machine that is already authorized in STF."
+            echo "::error::Optionally add ADB_PUBLIC_KEY from ~/.android/adbkey.pub."
+            exit 1
+          fi
+
+          if ! adb devices | grep -q "$DEVICE.*device"; then
+            echo "::error::ADB could not fully connect to $DEVICE."
+            exit 1
+          fi
+
           echo "📱 Device model:"
           adb -s "$DEVICE" shell getprop ro.product.model
           echo "Android version:"

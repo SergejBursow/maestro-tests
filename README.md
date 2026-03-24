@@ -18,7 +18,7 @@
 
 Сейчас подтверждён рабочий endpoint устройства из STF:
 
-- `adb connect 80.82.40.133:7401`
+- `adb connect 80.82.40.133:7405`
 
 Именно такой адрес и нужно использовать в `device_address`.
 
@@ -35,8 +35,31 @@
 
 - Добавлена отдельная TCP-проверка доступности ADB endpoint до `adb connect`
 - Ошибка теперь явно объясняет, что нужен `self-hosted runner` или публичный/tunneled ADB endpoint
+- Добавлена поддержка ADB-ключа через GitHub Secrets: `ADB_PRIVATE_KEY` и опционально `ADB_PUBLIC_KEY`
 - `APP_ID` теперь передаётся как input workflow и используется внутри Maestro
 - Все `adb shell` команды идут через конкретный serial устройства
+
+### Если GitHub Actions пишет `unauthorized`
+
+Это уже не проблема сети. Это означает, что runner достучался до устройства, но STF/ADB не доверяет ключу GitHub runner.
+
+Нужно добавить в GitHub Secrets ключ с машины, которая уже может подключаться:
+
+- `ADB_PRIVATE_KEY` = содержимое файла `~/.android/adbkey`
+- `ADB_PUBLIC_KEY` = содержимое файла `~/.android/adbkey.pub`
+
+На твоём Mac это можно посмотреть так:
+
+```bash
+cat ~/.android/adbkey
+cat ~/.android/adbkey.pub
+```
+
+После этого добавь secrets в репозиторий:
+
+- `Settings -> Secrets and variables -> Actions -> New repository secret`
+
+И перезапусти workflow.
 
 ### Как запускать
 
