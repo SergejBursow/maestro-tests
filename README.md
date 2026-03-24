@@ -1,80 +1,199 @@
-## Maestro + STF
+# Maestro + STF
 
-Сейчас workflow подключается к Android-устройству по `adb connect host:port`, а затем запускает `maestro test`.
+Этот репозиторий запускает автотест `Maestro` на реальном Android-устройстве, которое подключено к STF-ферме и доступно по `ADB over TCP`.
 
-### Что уже было не так
+Сейчас сценарий рабочий и проверен на приложении `ru.neopharm.stolichki`.
 
-По первому логу GitHub Actions падение происходило раньше Maestro:
+## Как это работает
 
-- `failed to connect to '80.82.40.133:5555': Connection timed out`
+```mermaid
+flowchart LR
+    A["Коллега открывает устройство в STF"] --> B["STF показывает актуальный adb connect host:port"]
+    B --> C["В GitHub Actions запускается workflow"]
+    C --> D["Runner подключается по ADB к устройству"]
+    D --> E["Runner проверяет, что приложение установлено"]
+    E --> F["Maestro запускает тест"]
+    F --> G["Отчёт и артефакты загружаются в GitHub Actions"]
+```
 
-Это значит, что runner GitHub не смог открыть TCP-соединение к ADB endpoint. Обычно причина одна из этих:
+## Схема запуска
 
-- STF и устройство доступны только в локальной сети другого ноутбука
-- был указан неверный ADB-порт
-- IP `80.82.40.133` недоступен из интернета
-- ADB over TCP не слушает на этом адресе
-- между GitHub runner и ноутбуком есть NAT или firewall
+```mermaid
+flowchart LR
+    subgraph STF["STF (устройство)"]
+        A["Открыть устройство"]
+        B["Обновить приложение"]
+        C["Разблокировать телефон"]
+        D["Скопировать adb host:port"]
+        A --> B --> C --> D
+    end
 
-Сейчас подтверждён рабочий endpoint устройства из STF:
+    subgraph GHA["GitHub Actions"]
+        E["Открыть Actions -> Run workflow"]
+        F["Заполнить параметры:
+device_address = host:port из STF
+app_id = ID приложения
+test_path = .maestro/"]
+        G["Запустить workflow"]
+        H["Тест выполняется"]
+        E --> F --> G --> H
+    end
 
-- `adb connect 80.82.40.133:7413`
+    D --> F
+```
 
-Именно такой адрес и нужно использовать в `device_address`.
+## Что нужно подготовить один раз
 
-### Что нужно для рабочего сценария
+### 1. Убедиться, что устройство доступно через STF
 
-Есть 2 нормальных варианта:
+Нужно:
 
-1. Запускать workflow на `self-hosted` GitHub runner на том ноутбуке, где развернут STF
-2. Оставить `ubuntu-latest`, но дать ему публично достижимый `host:port` для `adb connect`
+- установить тестируемое приложение на устройство через интерфейс STF
+- открыть устройство в веб-интерфейсе STF
+- убедиться, что телефон включён и разблокирован
+- убедиться, что STF показывает команду вида `adb connect host:port`
 
-Для домашней STF-фермы почти всегда проще и надёжнее первый вариант.
+Важно:
 
-### Что поменяно в workflow
+- приложение сейчас устанавливается вручную через STF до запуска workflow
+- порт ADB может меняться после переподключения устройства
+- перед каждым запуском нужно брать свежий `host:port` из STF
 
-- Добавлена отдельная TCP-проверка доступности ADB endpoint до `adb connect`
-- Ошибка теперь явно объясняет, что нужен `self-hosted runner` или публичный/tunneled ADB endpoint
-- Добавлена поддержка ADB-ключа через GitHub Secrets: `ADB_PRIVATE_KEY` и опционально `ADB_PUBLIC_KEY`
-- `APP_ID` теперь передаётся как input workflow и используется внутри Maestro
-- Все `adb shell` команды идут через конкретный serial устройства
+### 2. Добавить ADB-ключ в STF
 
-### Если GitHub Actions пишет `unauthorized`
+STF должен доверять тому ADB-ключу, который будет использовать GitHub Actions.
 
-Это уже не проблема сети. Это означает, что runner достучался до устройства, но STF/ADB не доверяет ключу GitHub runner.
+На Mac получи публичный ключ:
 
-Нужно добавить в GitHub Secrets ключ с машины, которая уже может подключаться:
+```bash
+adb pubkey ~/.android/adbkey
+```
+
+Дальше в STF:
+
+- открой раздел `Ключи`
+- вставь вывод команды `adb pubkey ~/.android/adbkey` в поле `Ключ`
+- в поле `Устройство` укажи понятное имя, например `github-actions-maestro`
+- нажми `Добавить ключ`
+
+### 3. Добавить ключи в GitHub Secrets
+
+В репозитории открой:
+
+- `Settings`
+- `Secrets and variables`
+- `Actions`
+
+Добавь два секрета:
 
 - `ADB_PRIVATE_KEY` = содержимое файла `~/.android/adbkey`
-- `ADB_PUBLIC_KEY` = содержимое файла `~/.android/adbkey.pub`
+- `ADB_PUBLIC_KEY` = вывод команды `adb pubkey ~/.android/adbkey`
 
-На твоём Mac это можно посмотреть так:
+Команды на Mac:
 
 ```bash
 cat ~/.android/adbkey
-cat ~/.android/adbkey.pub
+adb pubkey ~/.android/adbkey
 ```
 
-После этого добавь secrets в репозиторий:
+Важно:
 
-- `Settings -> Secrets and variables -> Actions -> New repository secret`
+- в `ADB_PRIVATE_KEY` вставляется приватный ключ целиком, многострочно
+- в `ADB_PUBLIC_KEY` вставляется публичный ключ одной строкой
+- если в конце строки есть `%`, это обычно символ shell, его вставлять не нужно
 
-И перезапусти workflow.
+## Как запускать тест
 
-### Как запускать
+Перед каждым запуском:
 
-В `Actions -> Maestro Tests on Real Device -> Run workflow` передай:
+1. Открой устройство в STF.
+2. Установи или обнови тестируемое приложение через интерфейс STF, если на устройстве неактуальная версия.
+3. Разблокируй телефон.
+4. Скопируй свежую команду `adb connect host:port` из STF.
+5. Открой `Actions -> Maestro Tests on Real Device -> Run workflow`.
+6. Укажи:
 
-- `device_address`: адрес в формате `host:port`
-- `app_id`: например `ru.neopharm.stolichki`
-- `test_path`: `.maestro/` или путь к конкретному yaml
+- `device_address` = актуальный `host:port` из STF
+- `app_id` = `ru.neopharm.stolichki`
+- `test_path` = `.maestro/`
 
-### Рекомендуемый следующий шаг
+7. Нажми `Run workflow`.
 
-Если STF живёт на другом ноутбуке и не торчит в интернет:
+## Что делает workflow
 
-- поставь на него GitHub Actions self-hosted runner
-- переведи этот workflow на запуск на self-hosted label
-- запускай `adb connect` уже внутри той же сети, где доступен STF/provider
+Workflow в [`.github/workflows/maestro-stf.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-stf.yml):
 
-Если захочешь, следующим шагом можно отдельно переделать workflow под `self-hosted` режим для STF-ноутбука.
+- ставит `Maestro`
+- ставит `adb`
+- подхватывает ADB-ключи из GitHub Secrets
+- проверяет доступность ADB endpoint
+- подключается к устройству
+- проверяет, что приложение установлено
+- будит и разблокирует устройство
+- запускает `Maestro`
+- загружает артефакты в GitHub Actions
+
+Тест лежит в [`.maestro/test.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/test.yaml).
+
+## Если что-то пошло не так
+
+### Ошибка `Connection refused`
+
+Это значит, что runner достучался до сервера, но ADB endpoint не активен.
+
+Обычно причина одна из этих:
+
+- устройство не открыто в STF
+- порт уже изменился
+- устройство переподключилось
+- STF больше не держит ADB endpoint активным
+
+Что делать:
+
+- заново открыть устройство в STF
+- взять свежий `adb connect host:port`
+- перезапустить workflow
+
+### Ошибка `unauthorized`
+
+Это значит, что ADB endpoint живой, но STF не доверяет ключу GitHub Actions.
+
+Что делать:
+
+- проверить, что в STF добавлен правильный публичный ключ
+- проверить, что `ADB_PRIVATE_KEY` и `ADB_PUBLIC_KEY` в GitHub взяты из одной и той же пары
+- лучше всего использовать:
+
+```bash
+cat ~/.android/adbkey
+adb pubkey ~/.android/adbkey
+```
+
+### Workflow завис на `Run Maestro tests`
+
+Обычно это значит, что:
+
+- телефон снова заблокировался
+- на экране появился системный pop-up
+- приложение долго стартует
+- `Maestro` ждёт состояние на экране
+
+Что делать:
+
+- посмотреть экран устройства в STF в момент запуска
+- убедиться, что экран включён и телефон разблокирован
+- проверить, нет ли pop-up с разрешениями
+
+## Ограничения текущего решения
+
+Сейчас схема полуавтоматическая:
+
+- устройство нужно открыть вручную в STF
+- телефон нужно разблокировать вручную
+- актуальный ADB порт нужно брать вручную перед запуском
+
+Если понадобится более стабильная схема без ручных действий, следующий шаг:
+
+- поднять `self-hosted runner` на ноутбуке с STF
+- запускать тесты внутри той же сети, где живёт ферма
+- по возможности автоматизировать резервирование устройства
