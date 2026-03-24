@@ -6,7 +6,7 @@ on:
       device_address:
         description: 'ADB адрес устройства в формате host:port'
         required: false
-        default: '80.82.40.133:7409'
+        default: '80.82.40.133:7413'
         type: string
       app_id:
         description: 'Android applicationId для Maestro'
@@ -50,7 +50,7 @@ jobs:
           fi
 
           echo "ADB_VENDOR_KEYS=$HOME/.android" >> "$GITHUB_ENV"
-          echo "✅ ADB key configured from GitHub Secrets"
+          echo "✅ ADB ключ загружен из GitHub Secrets"
       
       - name: Check ADB endpoint reachability
         run: |
@@ -60,8 +60,8 @@ jobs:
 
           echo "🌐 Checking TCP connectivity to $HOST:$PORT"
           if ! timeout 10 bash -lc "cat < /dev/null > /dev/tcp/$HOST/$PORT"; then
-            echo "::error::GitHub runner cannot reach $HOST:$PORT."
-            echo "::error::If STF is running on another laptop in a private network, use a self-hosted runner on that laptop or expose a public/tunneled ADB endpoint."
+            echo "::error::GitHub runner не может подключиться к $HOST:$PORT."
+            echo "::error::Проверь, что устройство открыто в STF и ADB endpoint сейчас активен."
             exit 1
           fi
 
@@ -83,14 +83,14 @@ jobs:
           adb devices
 
           if adb devices | grep -q "$DEVICE.*unauthorized"; then
-            echo "::error::ADB connected to $DEVICE but the device is unauthorized."
-            echo "::error::Add GitHub secret ADB_PRIVATE_KEY with the contents of ~/.android/adbkey from the machine that is already authorized in STF."
-            echo "::error::Optionally add ADB_PUBLIC_KEY from ~/.android/adbkey.pub."
+            echo "::error::ADB подключился к $DEVICE, но устройство не приняло ключ."
+            echo "::error::Проверь, что в GitHub Secrets лежат правильные ADB ключи из ~/.android/adbkey и ~/.android/adbkey.pub."
+            echo "::error::Проверь, что именно этот публичный ключ добавлен в STF в разделе Ключи."
             exit 1
           fi
 
           if ! adb devices | grep -q "$DEVICE.*device"; then
-            echo "::error::ADB could not fully connect to $DEVICE."
+            echo "::error::ADB не смог полностью подключиться к $DEVICE."
             exit 1
           fi
 
