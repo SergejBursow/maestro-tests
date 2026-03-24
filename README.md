@@ -18,29 +18,7 @@ flowchart LR
 
 ## Схема запуска
 
-```mermaid
-flowchart LR
-    subgraph STF["STF (устройство)"]
-        A["Открыть устройство"]
-        B["Обновить приложение"]
-        C["Разблокировать телефон"]
-        D["Скопировать adb host:port"]
-        A --> B --> C --> D
-    end
-
-    subgraph GHA["GitHub Actions"]
-        E["Открыть Actions -> Run workflow"]
-        F["Заполнить параметры:
-device_address = host:port из STF
-app_id = ID приложения
-test_path = .maestro/"]
-        G["Запустить workflow"]
-        H["Тест выполняется"]
-        E --> F --> G --> H
-    end
-
-    D --> F
-```
+![Схема запуска Maestro через STF](./image.png)
 
 ## Что нужно подготовить один раз
 
