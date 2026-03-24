@@ -43,7 +43,7 @@
 В `Actions -> Maestro Tests on Real Device -> Run workflow` передай:
 
 - `device_address`: адрес в формате `host:port`
-- `app_id`: например `com.example.myapp`
+- `app_id`: например `ru.neopharm.stolichki`
 - `test_path`: `.maestro/` или путь к конкретному yaml
 
 ### Рекомендуемый следующий шаг
