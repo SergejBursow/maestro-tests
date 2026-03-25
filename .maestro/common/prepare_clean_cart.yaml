@@ -1,0 +1,20 @@
+# Общий подфлоу: привести корзину к пустому состоянию без зависимости от badge-локатора.
+appId: com.example.testmaestro
+---
+# Переходим в корзину и, если кнопка очистки видна, очищаем всё содержимое.
+- tapOn:
+    id: tab_cart
+- assertVisible:
+    id: cart_screen
+- runFlow:
+    when:
+      visible:
+        id: clear_cart_button
+    commands:
+      - tapOn:
+          id: clear_cart_button
+# Возвращаемся на главный экран, чтобы следующий сценарий стартовал одинаково.
+- tapOn:
+    id: tab_home
+- assertVisible:
+    id: home_screen

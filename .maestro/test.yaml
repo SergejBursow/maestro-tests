@@ -1,3 +1,4 @@
+# Базовый smoke-тест: просто открыть приложение.
 appId: com.example.testmaestro
 ---
 - launchApp

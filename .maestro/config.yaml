@@ -1,0 +1,4 @@
+appId: ru.neopharm.stolichki
+flows:
+  - "*"
+  - "flows/*"

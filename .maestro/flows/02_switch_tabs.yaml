@@ -1,0 +1,22 @@
+# Проверка переключения между основными нижними вкладками приложения.
+appId: com.example.testmaestro
+name: Переключение нижних вкладок
+---
+- runFlow: ../common/launch_clean.yaml
+# Последовательно открываем вкладки и убеждаемся, что нужные экраны отображаются.
+- tapOn:
+    id: tab_catalog
+- assertVisible:
+    id: catalog_screen
+- tapOn:
+    id: tab_cart
+- assertVisible:
+    id: cart_screen
+- tapOn:
+    id: tab_profile
+- assertVisible:
+    id: profile_screen
+- tapOn:
+    id: tab_home
+- assertVisible:
+    id: home_screen

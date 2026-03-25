@@ -1,0 +1,12 @@
+# Проверка перехода в карточку товара с главного экрана.
+appId: com.example.testmaestro
+name: Открытие карточки товара
+---
+- runFlow: ../common/launch_clean.yaml
+# Переходим в карточку первого товара через общий подфлоу.
+- runFlow: ../common/open_p1_from_home.yaml
+# Проверяем, что ключевые элементы карточки товара отобразились.
+- assertVisible:
+    id: product_detail_description
+- assertVisible:
+    id: product_detail_price

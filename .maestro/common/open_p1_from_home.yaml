@@ -1,0 +1,12 @@
+# Общий подфлоу: открыть карточку первого товара с главного экрана.
+appId: com.example.testmaestro
+---
+- assertVisible:
+    id: product_card_p1
+- tapOn:
+    id: product_card_p1
+# Убеждаемся, что открылась карточка товара.
+- assertVisible:
+    id: product_detail_screen
+- assertVisible:
+    id: product_detail_title

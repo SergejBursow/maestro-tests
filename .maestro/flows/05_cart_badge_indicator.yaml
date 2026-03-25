@@ -1,0 +1,16 @@
+# Проверка индикатора количества товаров на иконке корзины.
+appId: com.example.testmaestro
+name: Индикатор корзины
+---
+- runFlow: ../common/launch_clean.yaml
+- runFlow: ../common/add_p1_to_cart_from_home.yaml
+# После добавления товара бейдж корзины должен стать видимым и показать количество 1.
+- assertVisible:
+    id: tab_cart_badge_box
+- assertVisible:
+    id: cart_badge
+# copyTextFrom сохраняет текст элемента во внутреннюю переменную Maestro: maestro.copiedText.
+- copyTextFrom:
+    id: cart_badge_count
+# assertTrue использует JS-выражение и сравнивает считанное значение с ожидаемым количеством.
+- assertTrue: ${maestro.copiedText == '1'}

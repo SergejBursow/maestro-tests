@@ -1,0 +1,10 @@
+# Общий подфлоу: добавить первый товар в корзину с главного экрана.
+appId: com.example.testmaestro
+---
+# Проверяем кнопку добавления и ждём появления счётчика в корзине.
+- assertVisible:
+    id: home_add_to_cart_p1
+- tapOn:
+    id: home_add_to_cart_p1
+- assertVisible:
+    id: cart_badge_count

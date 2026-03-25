@@ -1,0 +1,13 @@
+# Проверка, что приложение успешно запускается и основные элементы главного экрана видны.
+appId: com.example.testmaestro
+name: Запуск приложения
+---
+# Переиспользуем общий старт с очисткой состояния.
+- runFlow: ../common/launch_clean.yaml
+# Проверяем базовые элементы главного экрана.
+- assertVisible:
+    id: search_field
+- assertVisible:
+    id: bottom_nav
+- assertVisible:
+    id: tab_home

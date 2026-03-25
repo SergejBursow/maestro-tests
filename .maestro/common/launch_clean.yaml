@@ -1,0 +1,11 @@
+# Общий подфлоу: чистый запуск приложения без сохранённого состояния.
+appId: com.example.testmaestro
+---
+- launchApp:
+    appId: com.example.testmaestro
+    clearState: true
+# После запуска должен открыться главный экран.
+- assertVisible:
+    id: home_screen
+# Перед началом сценария проверяем, нет ли товаров в корзине, и при необходимости очищаем её.
+- runFlow: clear_cart_if_needed.yaml

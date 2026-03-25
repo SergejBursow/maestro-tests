@@ -1,0 +1,21 @@
+# Общий подфлоу: при необходимости очистить корзину перед началом теста.
+appId: com.example.testmaestro
+---
+# Если счётчик товаров на вкладке корзины виден, значит в корзине уже есть товары.
+- runFlow:
+    when:
+      visible:
+        id: cart_badge_count
+    commands:
+      # Открываем корзину и очищаем её.
+      - tapOn:
+          id: tab_cart
+      - assertVisible:
+          id: cart_screen
+      - tapOn:
+          id: clear_cart_button
+      # Возвращаемся на главный экран, чтобы следующие сценарии стартовали одинаково.
+      - tapOn:
+          id: tab_home
+      - assertVisible:
+          id: home_screen

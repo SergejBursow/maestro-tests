@@ -1,0 +1,16 @@
+# Проверка добавления товара в корзину и его отображения в корзине.
+appId: com.example.testmaestro
+name: Добавление товара в корзину
+---
+- runFlow: ../common/launch_clean.yaml
+# Используем общий сценарий добавления первого товара с главного экрана.
+- runFlow: ../common/add_p1_to_cart_from_home.yaml
+# Переходим в корзину и проверяем, что товар действительно появился.
+- tapOn:
+    id: tab_cart
+- assertVisible:
+    id: cart_screen
+- assertVisible:
+    id: cart_item_p1
+- assertVisible:
+    id: quantity_value_p1

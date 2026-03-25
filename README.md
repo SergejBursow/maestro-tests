@@ -4,6 +4,13 @@
 
 Сейчас сценарий рабочий и проверен.
 
+## Структура тестов
+
+- [`.maestro/test.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/test.yaml) — основной smoke-сценарий
+- [`.maestro/flows`](/Users/sergejbursov/Documents/maestro-tests/.maestro/flows) — отдельные тестовые сценарии приложения
+- [`.maestro/common`](/Users/sergejbursov/Documents/maestro-tests/.maestro/common) — переиспользуемые подфлоу и общие шаги
+- [`.maestro/config.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/config.yaml) — конфигурация discovery для вложенных flow-файлов
+
 ## Как это работает
 
 ```mermaid
@@ -111,7 +118,7 @@ Workflow в [`.github/workflows/maestro-stf.yml`](/Users/sergejbursov/Documents/
 - запускает `Maestro`
 - загружает артефакты в GitHub Actions
 
-Тест лежит в [`.maestro/test.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/test.yaml).
+Основной smoke-тест лежит в [`.maestro/test.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/test.yaml), а дополнительные сценарии — в [`.maestro/flows`](/Users/sergejbursov/Documents/maestro-tests/.maestro/flows).
 
 ## Если что-то пошло не так
 
