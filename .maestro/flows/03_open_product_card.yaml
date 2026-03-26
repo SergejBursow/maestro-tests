@@ -4,7 +4,12 @@ name: Открытие карточки товара
 ---
 - runFlow: ../common/launch_clean.yaml
 # Переходим в карточку первого товара через общий подфлоу.
-- runFlow: ../common/open_p1_from_home.yaml
+- runFlow:
+    file: ../common/open_p1_from_home.yaml
+    env:
+      PRODUCT_CARD_ID: product_card_p1
+      PRODUCT_DETAIL_SCREEN_ID: product_detail_screen
+      PRODUCT_DETAIL_TITLE_ID: product_detail_title
 # Проверяем, что ключевые элементы карточки товара отобразились.
 - assertVisible:
     id: product_detail_description

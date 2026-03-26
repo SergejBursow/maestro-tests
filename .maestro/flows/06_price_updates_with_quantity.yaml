@@ -1,6 +1,10 @@
 # Проверка, что итоговая цена в корзине корректно меняется при изменении количества.
 appId: com.example.testmaestro
 name: Обновление цены при изменении количества
+env:
+  ADD_TO_CART_BUTTON_ID: ${ADD_TO_CART_BUTTON_ID || "home_add_to_cart_p1"}
+  EXPECTED_QUANTITY_AFTER_INCREMENT: ${EXPECTED_QUANTITY_AFTER_INCREMENT || "2"}
+  PRICE_TOLERANCE: ${PRICE_TOLERANCE || 0.01}
 ---
 - launchApp:
     appId: com.example.testmaestro
@@ -8,9 +12,9 @@ name: Обновление цены при изменении количеств
 - assertVisible:
     id: home_screen
 - assertVisible:
-    id: home_add_to_cart_p1
+    id: ${ADD_TO_CART_BUTTON_ID}
 - tapOn:
-    id: home_add_to_cart_p1
+    id: ${ADD_TO_CART_BUTTON_ID}
 # Открываем корзину и сверяем цену до и после увеличения количества товара.
 - tapOn:
     id: tab_cart
@@ -29,7 +33,7 @@ name: Обновление цены при изменении количеств
     id: quantity_value_p1
 # JS-проверка подтверждает, что количество стало равно 2.
 - assertTrue:
-    condition: ${maestro.copiedText == '2'}
+    condition: ${maestro.copiedText == EXPECTED_QUANTITY_AFTER_INCREMENT}
     label: Количество товара должно стать равно 2
 # Повторно считываем итоговую сумму корзины после изменения количества.
 - copyTextFrom:
@@ -39,5 +43,5 @@ name: Обновление цены при изменении количеств
 - evalScript: ${output.updatedPrice = parseFloat(output.updatedPriceText.replace(/[^\d,.-]/g, '').replace(',', '.'))}
 # JS-проверка подтверждает, что итоговая сумма увеличилась пропорционально количеству.
 - assertTrue:
-    condition: ${Math.abs(output.updatedPrice - output.initialPrice * 2) < 0.01}
+    condition: ${Math.abs(output.updatedPrice - output.initialPrice * parseFloat(EXPECTED_QUANTITY_AFTER_INCREMENT)) < PRICE_TOLERANCE}
     label: Итоговая сумма должна увеличиться пропорционально количеству

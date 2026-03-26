@@ -1,9 +1,15 @@
 # Проверка индикатора количества товаров на иконке корзины.
 appId: com.example.testmaestro
 name: Индикатор корзины
+env:
+  EXPECTED_BADGE_COUNT: ${EXPECTED_BADGE_COUNT || "1"}
 ---
 - runFlow: ../common/launch_clean.yaml
-- runFlow: ../common/add_p1_to_cart_from_home.yaml
+- runFlow:
+    file: ../common/add_p1_to_cart_from_home.yaml
+    env:
+      ADD_TO_CART_BUTTON_ID: home_add_to_cart_p1
+      CART_BADGE_COUNT_ID: cart_badge_count
 # После добавления товара бейдж корзины должен стать видимым и показать количество 1.
 - assertVisible:
     id: tab_cart_badge_box
@@ -13,4 +19,4 @@ name: Индикатор корзины
 - copyTextFrom:
     id: cart_badge_count
 # assertTrue использует JS-выражение и сравнивает считанное значение с ожидаемым количеством.
-- assertTrue: ${maestro.copiedText == '1'}
+- assertTrue: ${maestro.copiedText == EXPECTED_BADGE_COUNT}

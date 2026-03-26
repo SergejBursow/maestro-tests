@@ -4,7 +4,11 @@ name: Добавление товара в корзину
 ---
 - runFlow: ../common/launch_clean.yaml
 # Используем общий сценарий добавления первого товара с главного экрана.
-- runFlow: ../common/add_p1_to_cart_from_home.yaml
+- runFlow:
+    file: ../common/add_p1_to_cart_from_home.yaml
+    env:
+      ADD_TO_CART_BUTTON_ID: home_add_to_cart_p1
+      CART_BADGE_COUNT_ID: cart_badge_count
 # Переходим в корзину и проверяем, что товар действительно появился.
 - tapOn:
     id: tab_cart
