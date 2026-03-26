@@ -11,7 +11,7 @@ on:
       app_id:
         description: 'Android applicationId для Maestro'
         required: false
-        default: 'ru.neopharm.stolichki'
+        default: 'com.example.testmaestro'
         type: string
       test_path:
         description: 'Путь к тесту'

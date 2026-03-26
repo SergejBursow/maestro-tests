@@ -99,7 +99,7 @@ adb pubkey ~/.android/adbkey
 6. Укажи:
 
 - `device_address` = актуальный `host:port` из STF
-- `app_id` = `ru.neopharm.stolichki`
+- `app_id` = `com.example.testmaestro`
 - `test_path` = `.maestro/`
 
 7. Нажми `Run workflow`.
