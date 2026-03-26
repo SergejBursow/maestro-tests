@@ -114,11 +114,13 @@ jobs:
       
       - name: Run Maestro tests
         id: maestro_tests
-        continue-on-error: true
         run: |
           echo "▶️ Running Maestro on $ANDROID_SERIAL for $APP_ID"
+          set +e
           maestro test "${{ inputs.test_path }}" --format junit --output maestro-report.xml
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          exit $EXIT_CODE
       
       - name: Upload results
         if: always()
@@ -129,10 +131,3 @@ jobs:
             maestro-report.xml
             ~/.maestro/tests/**/*
           retention-days: 7
-      
-      - name: Final status
-        if: always()
-        run: |
-          if [ "${{ steps.maestro_tests.outputs.exit_code }}" != "0" ]; then
-            exit 1
-          fi
