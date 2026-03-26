@@ -16,7 +16,7 @@ on:
       test_path:
         description: 'Путь к тесту'
         required: false
-        default: '.maestro/'
+        default: '.maestro/flows'
 
 jobs:
   tests:
