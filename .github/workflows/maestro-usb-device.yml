@@ -31,10 +31,11 @@ jobs:
 
       - name: Install Maestro
         run: |
-          if ! command -v maestro >/dev/null 2>&1; then
+          if [ ! -x "$HOME/.maestro/bin/maestro" ]; then
             curl -Ls "https://get.maestro.mobile.dev" | bash
           fi
-          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+          echo "MAESTRO_BIN=$HOME/.maestro/bin/maestro" >> "$GITHUB_ENV"
+          "$HOME/.maestro/bin/maestro" --version
 
       - name: Check ADB availability
         run: |
@@ -100,7 +101,7 @@ jobs:
       - name: Run Maestro tests
         run: |
           echo "▶️ Running Maestro on $ANDROID_SERIAL for $APP_ID"
-          maestro test "${{ inputs.test_path }}" --format junit --output maestro-report.xml
+          "$MAESTRO_BIN" test "${{ inputs.test_path }}" --format junit --output maestro-report.xml
 
       - name: Upload results
         if: always()
