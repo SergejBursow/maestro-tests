@@ -1,8 +1,16 @@
-# Maestro + STF
+# Maestro: STF, Emulator и USB Device
 
-Этот репозиторий запускает автотест `Maestro` на реальном Android-устройстве, которое подключено к STF-ферме и доступно по `ADB over TCP`.
+Этот репозиторий запускает автотесты `Maestro` в трёх режимах:
 
-Сейчас сценарий рабочий и проверен.
+- на реальном Android-устройстве через STF и `ADB over TCP`
+- на Android-эмуляторе через `self-hosted` runner
+- на реальном Android-устройстве, подключённом по USB к `self-hosted` runner
+
+Все три сценария рабочие, но решают разные задачи:
+
+- STF нужен, когда важен прогон на реальном устройстве
+- эмулятор нужен, когда нужен более стабильный и быстрый CI без ручной работы с фермой
+- USB-устройство на runner нужно, когда хочется запускать тесты на реальном телефоне без STF-прокси и сетевого `adb connect`
 
 ## Структура тестов
 
@@ -22,6 +30,12 @@ flowchart LR
     E --> F["Maestro запускает тест"]
     F --> G["Отчёт и артефакты загружаются в GitHub Actions"]
 ```
+
+## Какие workflow есть в проекте
+
+- [`.github/workflows/maestro-stf.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-stf.yml) — прогон на реальном устройстве через STF
+- [`.github/workflows/maestro-emulator.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-emulator.yml) — прогон на уже запущенном Android-эмуляторе через `self-hosted` runner
+- [`.github/workflows/maestro-usb-device.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-usb-device.yml) — прогон на реальном телефоне, подключённом по USB к `self-hosted` runner
 
 ## Схема запуска
 
@@ -100,7 +114,7 @@ adb pubkey ~/.android/adbkey
 
 - `device_address` = актуальный `host:port` из STF
 - `app_id` = `com.example.testmaestro`
-- `test_path` = `.maestro/`
+- `test_path` = `.maestro/flows`
 
 7. Нажми `Run workflow`.
 
@@ -117,6 +131,88 @@ Workflow в [`.github/workflows/maestro-stf.yml`](/Users/sergejbursov/Documents/
 - будит и разблокирует устройство
 - запускает `Maestro`
 - загружает артефакты в GitHub Actions
+
+## Как запускать тесты на эмуляторе
+
+Этот сценарий подходит, если у тебя есть машина с уже установленными:
+
+- Android SDK / Android Studio
+- `adb`
+- Android-эмулятор
+- `self-hosted` GitHub runner
+
+Важно:
+
+- GitHub-hosted runner не увидит твой локальный эмулятор
+- workflow для эмулятора рассчитан на то, что эмулятор уже запущен
+- приложение устанавливается на эмулятор заранее вручную или отдельным шагом
+
+Порядок запуска:
+
+1. Запусти эмулятор на машине, где работает `self-hosted` runner.
+2. Установи или обнови тестируемое приложение на эмуляторе.
+3. Убедись, что `adb devices` показывает, например, `emulator-5554`.
+4. Открой `Actions -> Maestro Tests on Emulator -> Run workflow`.
+5. Укажи:
+
+- `android_serial` = `emulator-5554` или другой serial эмулятора
+- `app_id` = `com.example.testmaestro`
+- `test_path` = `.maestro/flows`
+
+6. Нажми `Run workflow`.
+
+Workflow в [`.github/workflows/maestro-emulator.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-emulator.yml):
+
+- проверяет, что на runner есть `adb`
+- проверяет, что эмулятор запущен и доступен через ADB
+- будит эмулятор и отключает анимации
+- проверяет, что приложение установлено
+- запускает `Maestro`
+- загружает JUnit-отчёт и артефакты в GitHub Actions
+
+## Как запускать тесты на USB-устройстве
+
+Этот сценарий подходит, если у тебя:
+
+- телефон подключён по USB к машине с `self-hosted` runner
+- на телефоне включён `USB debugging`
+- телефон подтверждён в `adb`
+
+Проверка на Ubuntu:
+
+```bash
+adb devices -l
+```
+
+В выводе должно быть устройство со статусом `device`, например:
+
+```text
+R58N123456A device usb:1-1 model:SM_G950F
+```
+
+Порядок запуска:
+
+1. Подключи телефон по USB к Ubuntu-машине с runner.
+2. Разблокируй телефон и подтверди RSA-ключ, если Android попросит.
+3. Установи или обнови тестируемое приложение на телефон.
+4. Убедись, что `adb devices -l` видит телефон как `device`.
+5. Открой `Actions -> Maestro Tests on USB Device -> Run workflow`.
+6. Укажи:
+
+- `android_serial` = serial телефона из `adb devices -l` или оставь пустым, если телефон один
+- `app_id` = `com.example.testmaestro`
+- `test_path` = `.maestro/flows`
+
+7. Нажми `Run workflow`.
+
+Workflow в [`.github/workflows/maestro-usb-device.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-usb-device.yml):
+
+- проверяет, что на runner есть `adb`
+- ищет локально подключённый по USB телефон
+- будит устройство и отключает анимации
+- проверяет, что приложение установлено
+- запускает `Maestro`
+- загружает JUnit-отчёт и артефакты в GitHub Actions
 
 Основной smoke-тест лежит в [`.maestro/test.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/test.yaml), а дополнительные сценарии — в [`.maestro/flows`](/Users/sergejbursov/Documents/maestro-tests/.maestro/flows).
 

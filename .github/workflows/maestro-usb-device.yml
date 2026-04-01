@@ -1,0 +1,111 @@
+name: Maestro Tests on USB Device
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_serial:
+        description: 'ADB serial телефона. Можно оставить пустым, если подключено одно устройство'
+        required: false
+        default: ''
+        type: string
+      app_id:
+        description: 'Android applicationId для Maestro'
+        required: false
+        default: 'com.example.testmaestro'
+        type: string
+      test_path:
+        description: 'Путь к тестам Maestro'
+        required: false
+        default: '.maestro/flows'
+        type: string
+
+jobs:
+  tests:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    env:
+      MAESTRO_CLI_NO_ANALYTICS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Check ADB availability
+        run: |
+          if ! command -v adb >/dev/null 2>&1; then
+            echo "::error::adb не найден на self-hosted runner."
+            echo "::error::Установите Android Platform Tools или Android SDK на машину с телефоном."
+            exit 1
+          fi
+
+          adb version
+
+      - name: Connect to USB device
+        run: |
+          adb start-server
+
+          SERIAL="${{ inputs.android_serial }}"
+          if [ -z "$SERIAL" ]; then
+            SERIAL="$(adb devices | awk 'NR>1 && $2==\"device\" && $1 !~ /^emulator-/ {print $1; exit}')"
+          fi
+
+          if [ -z "$SERIAL" ]; then
+            echo "::error::Не найдено локально подключённое Android-устройство."
+            echo "::error::Подключи телефон по USB, включи USB debugging и подтверди RSA-ключ."
+            adb devices -l
+            exit 1
+          fi
+
+          adb -s "$SERIAL" wait-for-device
+          adb devices -l
+
+          if ! adb devices | grep -q "^$SERIAL[[:space:]]*device$"; then
+            echo "::error::ADB видит $SERIAL, но устройство не готово к работе."
+            exit 1
+          fi
+
+          echo "📱 USB device serial: $SERIAL"
+          echo "📱 Device model:"
+          adb -s "$SERIAL" shell getprop ro.product.model
+          echo "Android version:"
+          adb -s "$SERIAL" shell getprop ro.build.version.release
+
+          echo "ANDROID_SERIAL=$SERIAL" >> "$GITHUB_ENV"
+          echo "APP_ID=${{ inputs.app_id }}" >> "$GITHUB_ENV"
+
+      - name: Wake and prepare device
+        run: |
+          adb -s "$ANDROID_SERIAL" shell input keyevent KEYCODE_WAKEUP || true
+          adb -s "$ANDROID_SERIAL" shell wm dismiss-keyguard || true
+          adb -s "$ANDROID_SERIAL" shell settings put global window_animation_scale 0 || true
+          adb -s "$ANDROID_SERIAL" shell settings put global transition_animation_scale 0 || true
+          adb -s "$ANDROID_SERIAL" shell settings put global animator_duration_scale 0 || true
+
+      - name: Check if app is installed
+        run: |
+          if adb -s "$ANDROID_SERIAL" shell pm list packages | grep -q "$APP_ID"; then
+            echo "✅ App is installed"
+          else
+            echo "::error::Приложение $APP_ID не найдено на телефоне."
+            echo "::error::Установи APK вручную или через adb install перед запуском workflow."
+            exit 1
+          fi
+
+      - name: Run Maestro tests
+        run: |
+          echo "▶️ Running Maestro on $ANDROID_SERIAL for $APP_ID"
+          maestro test "${{ inputs.test_path }}" --format junit --output maestro-report.xml
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-usb-device-results
+          path: |
+            maestro-report.xml
+            ~/.maestro/tests/**/*
+          retention-days: 7
