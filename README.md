@@ -1,280 +1,186 @@
-# Maestro: STF, Emulator и USB Device
+# Maestro Test Runs
 
-Этот репозиторий запускает автотесты `Maestro` в трёх режимах:
+Этот репозиторий содержит автотесты `Maestro` и несколько вариантов их запуска через GitHub Actions.
 
-- на реальном Android-устройстве через STF и `ADB over TCP`
-- на Android-эмуляторе через `self-hosted` runner
-- на реальном Android-устройстве, подключённом по USB к `self-hosted` runner
+Основной рабочий сценарий на текущий момент:
 
-Все три сценария рабочие, но решают разные задачи:
+- `self-hosted runner` на Ubuntu-ноутбуке
+- реальный Android-телефон, подключённый к этому ноутбуку по USB
+- запуск workflow `Maestro Tests on USB Device`
 
-- STF нужен, когда важен прогон на реальном устройстве
-- эмулятор нужен, когда нужен более стабильный и быстрый CI без ручной работы с фермой
-- USB-устройство на runner нужно, когда хочется запускать тесты на реальном телефоне без STF-прокси и сетевого `adb connect`
+Именно этот вариант сейчас даёт лучший результат по стабильности и времени прогона.
 
-## Структура тестов
+## Структура проекта
 
-- [`.maestro/test.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/test.yaml) — основной smoke-сценарий
-- [`.maestro/flows`](/Users/sergejbursov/Documents/maestro-tests/.maestro/flows) — отдельные тестовые сценарии приложения
-- [`.maestro/common`](/Users/sergejbursov/Documents/maestro-tests/.maestro/common) — переиспользуемые подфлоу и общие шаги
-- [`.maestro/config.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/config.yaml) — конфигурация discovery для вложенных flow-файлов
+- `.maestro/flows` — основные тестовые сценарии
+- `.maestro/common` — общие подфлоу и переиспользуемые шаги
+- `.maestro/test.yaml` — отдельный smoke-flow
+- `.maestro/config.yaml` — конфигурация discovery для Maestro
 
-## Как это работает
+## Какие workflow есть
 
-```mermaid
-flowchart LR
-    A["Коллега открывает устройство в STF"] --> B["STF показывает актуальный adb connect host:port"]
-    B --> C["В GitHub Actions запускается workflow"]
-    C --> D["Runner подключается по ADB к устройству"]
-    D --> E["Runner проверяет, что приложение установлено"]
-    E --> F["Maestro запускает тест"]
-    F --> G["Отчёт и артефакты загружаются в GitHub Actions"]
-```
+- `Maestro Tests on USB Device` — основной сценарий: реальный телефон по USB + `self-hosted runner`
+- `Maestro Tests on Real Device` — прогон через STF и удалённый `adb connect`
+- `Maestro Tests on Emulator` — прогон на Android-эмуляторе через `self-hosted runner`
 
-## Какие workflow есть в проекте
+## Рекомендуемый сценарий
 
-- [`.github/workflows/maestro-stf.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-stf.yml) — прогон на реальном устройстве через STF
-- [`.github/workflows/maestro-emulator.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-emulator.yml) — прогон на уже запущенном Android-эмуляторе через `self-hosted` runner
-- [`.github/workflows/maestro-usb-device.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-usb-device.yml) — прогон на реальном телефоне, подключённом по USB к `self-hosted` runner
+Использовать `Maestro Tests on USB Device`.
 
-## Схема запуска
+Почему:
 
-![Схема запуска Maestro через STF](./image.png)
+- быстрее, чем STF
+- нет плавающих `host:port`
+- не нужны ADB-ключи для GitHub-hosted runner
+- телефон виден локально через обычный `adb`
+- `Maestro` на runner уже установлен и не скачивается заново на каждом прогоне
 
-## Что нужно подготовить один раз
+## Что уже настроено
 
-### 1. Убедиться, что устройство доступно через STF
+На Ubuntu-ноутбуке:
 
-Нужно:
+- установлен `self-hosted runner`
+- runner работает как systemd-сервис
+- установлен `Maestro 2.3.0`
+- установлен `adb`
+- телефон виден локально через `adb devices -l`
 
-- установить тестируемое приложение на устройство через интерфейс STF
-- открыть устройство в веб-интерфейсе STF
-- убедиться, что телефон включён и разблокирован
-- убедиться, что STF показывает команду вида `adb connect host:port`
+Также на ноутбуке продолжает работать STF, но для CI основной путь теперь не через STF, а через локальный USB-доступ к телефону.
 
-Важно:
+## Как запускать основной сценарий
 
-- приложение сейчас устанавливается вручную через STF до запуска workflow
-- порт ADB может меняться после переподключения устройства
-- перед каждым запуском нужно брать свежий `host:port` из STF
+### Перед прогоном
 
-### 2. Добавить ADB-ключ в STF
-
-STF должен доверять тому ADB-ключу, который будет использовать GitHub Actions.
-
-На Mac получи публичный ключ:
+На Ubuntu-ноутбуке:
 
 ```bash
-adb pubkey ~/.android/adbkey
-```
-
-Дальше в STF:
-
-- открой раздел `Ключи`
-- вставь вывод команды `adb pubkey ~/.android/adbkey` в поле `Ключ`
-- в поле `Устройство` укажи понятное имя, например `github-actions-maestro`
-- нажми `Добавить ключ`
-
-### 3. Добавить ключи в GitHub Secrets
-
-В репозитории открой:
-
-- `Settings`
-- `Secrets and variables`
-- `Actions`
-
-Добавь два секрета:
-
-- `ADB_PRIVATE_KEY` = содержимое файла `~/.android/adbkey`
-- `ADB_PUBLIC_KEY` = вывод команды `adb pubkey ~/.android/adbkey`
-
-Команды на Mac:
-
-```bash
-cat ~/.android/adbkey
-adb pubkey ~/.android/adbkey
-```
-
-Важно:
-
-- в `ADB_PRIVATE_KEY` вставляется приватный ключ целиком, многострочно
-- в `ADB_PUBLIC_KEY` вставляется публичный ключ одной строкой
-- если в конце строки есть `%`, это обычно символ shell, его вставлять не нужно
-
-## Как запускать тест
-
-Перед каждым запуском:
-
-1. Открой устройство в STF.
-2. Установи или обнови тестируемое приложение через интерфейс STF, если на устройстве неактуальная версия.
-3. Разблокируй телефон.
-4. Скопируй свежую команду `adb connect host:port` из STF.
-5. Открой `Actions -> Maestro Tests on Real Device -> Run workflow`.
-6. Укажи:
-
-- `device_address` = актуальный `host:port` из STF
-- `app_id` = `com.example.testmaestro`
-- `test_path` = `.maestro/flows`
-
-7. Нажми `Run workflow`.
-
-## Что делает workflow
-
-Workflow в [`.github/workflows/maestro-stf.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-stf.yml):
-
-- ставит `Maestro`
-- ставит `adb`
-- подхватывает ADB-ключи из GitHub Secrets
-- проверяет доступность ADB endpoint
-- подключается к устройству
-- проверяет, что приложение установлено
-- будит и разблокирует устройство
-- запускает `Maestro`
-- загружает артефакты в GitHub Actions
-
-## Как запускать тесты на эмуляторе
-
-Этот сценарий подходит, если у тебя есть машина с уже установленными:
-
-- Android SDK / Android Studio
-- `adb`
-- Android-эмулятор
-- `self-hosted` GitHub runner
-
-Важно:
-
-- GitHub-hosted runner не увидит твой локальный эмулятор
-- workflow для эмулятора рассчитан на то, что эмулятор уже запущен
-- приложение устанавливается на эмулятор заранее вручную или отдельным шагом
-
-Порядок запуска:
-
-1. Запусти эмулятор на машине, где работает `self-hosted` runner.
-2. Установи или обнови тестируемое приложение на эмуляторе.
-3. Убедись, что `adb devices` показывает, например, `emulator-5554`.
-4. Открой `Actions -> Maestro Tests on Emulator -> Run workflow`.
-5. Укажи:
-
-- `android_serial` = `emulator-5554` или другой serial эмулятора
-- `app_id` = `com.example.testmaestro`
-- `test_path` = `.maestro/flows`
-
-6. Нажми `Run workflow`.
-
-Workflow в [`.github/workflows/maestro-emulator.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-emulator.yml):
-
-- проверяет, что на runner есть `adb`
-- проверяет, что эмулятор запущен и доступен через ADB
-- будит эмулятор и отключает анимации
-- проверяет, что приложение установлено
-- запускает `Maestro`
-- загружает JUnit-отчёт и артефакты в GitHub Actions
-
-## Как запускать тесты на USB-устройстве
-
-Этот сценарий подходит, если у тебя:
-
-- телефон подключён по USB к машине с `self-hosted` runner
-- на телефоне включён `USB debugging`
-- телефон подтверждён в `adb`
-
-Проверка на Ubuntu:
-
-```bash
+adb kill-server
+adb start-server
 adb devices -l
 ```
 
-В выводе должно быть устройство со статусом `device`, например:
+Ожидаемый результат:
 
-```text
-R58N123456A device usb:1-1 model:SM_G950F
-```
+- телефон должен появиться в списке со статусом `device`
 
-Порядок запуска:
+Если телефона нет:
 
-1. Подключи телефон по USB к Ubuntu-машине с runner.
-2. Разблокируй телефон и подтверди RSA-ключ, если Android попросит.
-3. Установи или обнови тестируемое приложение на телефон.
-4. Убедись, что `adb devices -l` видит телефон как `device`.
-5. Открой `Actions -> Maestro Tests on USB Device -> Run workflow`.
-6. Укажи:
+1. подключить или переподключить USB
+2. разблокировать телефон
+3. подтвердить `USB debugging`, если Android показывает запрос
+4. снова выполнить `adb devices -l`
 
-- `android_serial` = serial телефона из `adb devices -l` или оставь пустым, если телефон один
-- `app_id` = `com.example.testmaestro`
-- `test_path` = `.maestro/flows`
+### Проверить приложение
 
-7. Нажми `Run workflow`.
-
-Workflow в [`.github/workflows/maestro-usb-device.yml`](/Users/sergejbursov/Documents/maestro-tests/.github/workflows/maestro-usb-device.yml):
-
-- проверяет, что на runner есть `adb`
-- ищет локально подключённый по USB телефон
-- будит устройство и отключает анимации
-- проверяет, что приложение установлено
-- запускает `Maestro`
-- загружает JUnit-отчёт и артефакты в GitHub Actions
-
-Основной smoke-тест лежит в [`.maestro/test.yaml`](/Users/sergejbursov/Documents/maestro-tests/.maestro/test.yaml), а дополнительные сценарии — в [`.maestro/flows`](/Users/sergejbursov/Documents/maestro-tests/.maestro/flows).
-
-## Если что-то пошло не так
-
-### Ошибка `Connection refused`
-
-Это значит, что runner достучался до сервера, но ADB endpoint не активен.
-
-Обычно причина одна из этих:
-
-- устройство не открыто в STF
-- порт уже изменился
-- устройство переподключилось
-- STF больше не держит ADB endpoint активным
-
-Что делать:
-
-- заново открыть устройство в STF
-- взять свежий `adb connect host:port`
-- перезапустить workflow
-
-### Ошибка `unauthorized`
-
-Это значит, что ADB endpoint живой, но STF не доверяет ключу GitHub Actions.
-
-Что делать:
-
-- проверить, что в STF добавлен правильный публичный ключ
-- проверить, что `ADB_PRIVATE_KEY` и `ADB_PUBLIC_KEY` в GitHub взяты из одной и той же пары
-- лучше всего использовать:
+Если нужно убедиться, что приложение установлено:
 
 ```bash
-cat ~/.android/adbkey
-adb pubkey ~/.android/adbkey
+adb -s SERIAL shell pm list packages | grep com.example.testmaestro
 ```
 
-### Workflow завис на `Run Maestro tests`
+### Запуск workflow
 
-Обычно это значит, что:
+В GitHub:
 
-- телефон снова заблокировался
-- на экране появился системный pop-up
-- приложение долго стартует
-- `Maestro` ждёт состояние на экране
+1. открыть `Actions`
+2. выбрать `Maestro Tests on USB Device`
+3. нажать `Run workflow`
 
-Что делать:
+Поля:
 
-- посмотреть экран устройства в STF в момент запуска
-- убедиться, что экран включён и телефон разблокирован
-- проверить, нет ли pop-up с разрешениями
+- `android_serial` — можно оставить пустым, если телефон подключён один
+- `app_id` — `com.example.testmaestro`
+- `test_path` — `.maestro/flows`
 
-## Ограничения текущего решения
+## Что делает USB workflow
 
-Сейчас схема полуавтоматическая:
+Workflow `Maestro Tests on USB Device`:
 
-- устройство нужно открыть вручную в STF
-- телефон нужно разблокировать вручную
-- актуальный ADB порт нужно брать вручную перед запуском
+- проверяет наличие `adb`
+- находит локально подключённый телефон
+- будит устройство и пытается снять блокировку
+- проверяет, что приложение установлено
+- запускает `Maestro` по `.maestro/flows`
+- сохраняет `junit`-отчёт и артефакты в GitHub Actions
 
-Если понадобится более стабильная схема без ручных действий, следующий шаг:
+## Текущее ожидаемое поведение тестов
 
-- поднять `self-hosted runner` на ноутбуке с STF
-- запускать тесты внутри той же сети, где живёт ферма
-- по возможности автоматизировать резервирование устройства
+На текущем наборе flow ожидаемый результат такой:
+
+- проходят `4 из 6`
+- падают `2 из 6`
+
+Падающие сценарии:
+
+- `.maestro/flows/04_add_product_to_cart.yaml`
+- `.maestro/flows/05_cart_badge_indicator.yaml`
+
+Причина падения сейчас ожидаемая:
+
+- `Assertion is false: id: cart_badge_count is visible`
+
+Эти два падения в текущем состоянии проекта считаются нормальными и специально не исправляются.
+
+## Время прогона
+
+Практический результат после перехода с STF на `USB + self-hosted runner`:
+
+- через STF полноценный прогон занимал примерно `11–12 минут`
+- через USB-сценарий прогон занимает около `3 минут`
+
+Это основной выигрыш новой схемы.
+
+## STF и эмулятор
+
+### STF
+
+STF остаётся в проекте как вспомогательный сценарий:
+
+- для ручной работы
+- для визуального доступа к устройству
+- для отдельных прогонов через `Maestro Tests on Real Device`, если это понадобится
+
+### Эмулятор
+
+Эмуляторный сценарий тоже настроен:
+
+- `Maestro Tests on Emulator`
+
+Но сейчас он не является основным.
+
+## Что проверять после перезагрузки ноутбука
+
+Минимальная проверка:
+
+```bash
+adb kill-server
+adb start-server
+adb devices -l
+```
+
+Если телефон виден как `device`, можно сразу запускать workflow.
+
+Дополнительно при сомнениях можно проверить runner:
+
+```bash
+systemctl list-units --type=service | grep actions.runner
+```
+
+Ожидаемый статус:
+
+- `active (running)`
+
+## Артефакты
+
+После прогона workflow загружает artifact с результатами:
+
+- `maestro-usb-device-results`
+
+Внутри:
+
+- `maestro-report.xml`
+- файлы из `~/.maestro/tests/**/*`
+
+## Примечание
+
+Предупреждение GitHub про `Node.js 20` у `actions/checkout@v4` и `actions/upload-artifact@v4` сейчас не блокирует прогоны и не влияет на результат тестов.
