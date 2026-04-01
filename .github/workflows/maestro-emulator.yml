@@ -31,7 +31,9 @@ jobs:
 
       - name: Install Maestro
         run: |
-          curl -Ls "https://get.maestro.mobile.dev" | bash
+          if ! command -v maestro >/dev/null 2>&1; then
+            curl -Ls "https://get.maestro.mobile.dev" | bash
+          fi
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Check ADB availability

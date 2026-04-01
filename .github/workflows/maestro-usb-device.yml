@@ -31,7 +31,9 @@ jobs:
 
       - name: Install Maestro
         run: |
-          curl -Ls "https://get.maestro.mobile.dev" | bash
+          if ! command -v maestro >/dev/null 2>&1; then
+            curl -Ls "https://get.maestro.mobile.dev" | bash
+          fi
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Check ADB availability
@@ -50,7 +52,7 @@ jobs:
 
           SERIAL="${{ inputs.android_serial }}"
           if [ -z "$SERIAL" ]; then
-            SERIAL="$(adb devices | awk 'NR>1 && $2==\"device\" && $1 !~ /^emulator-/ {print $1; exit}')"
+            SERIAL="$(adb devices | awk 'NR > 1 && $2 == "device" && $1 !~ /^emulator-/ { print $1; exit }')"
           fi
 
           if [ -z "$SERIAL" ]; then
